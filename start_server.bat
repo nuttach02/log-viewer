@@ -6,11 +6,15 @@ echo  Log Viewer - Auto Setup ^& Start
 echo ============================================
 echo.
 
-:: Check if existing .venv works
+:: Check if existing .venv works (python + uvicorn both present)
 "%~dp0.venv\Scripts\python.exe" --version >nul 2>&1
 if %errorlevel% == 0 (
-    echo [OK] Found working virtual environment.
-    goto :start_server
+    if exist "%~dp0.venv\Scripts\uvicorn.exe" (
+        echo [OK] Found working virtual environment.
+        goto :start_server
+    )
+    echo [INFO] Virtual environment incomplete - reinstalling packages...
+    goto :install_packages
 )
 
 echo [INFO] Virtual environment not found or broken. Setting up...
@@ -48,12 +52,13 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
+:install_packages
 :: Install requirements
 echo [INFO] Installing packages (this may take a few minutes)...
 "%~dp0.venv\Scripts\python.exe" -m pip install --upgrade pip --quiet
-"%~dp0.venv\Scripts\python.exe" -m pip install -r "%~dp0requirements.txt" --quiet
+"%~dp0.venv\Scripts\python.exe" -m pip install -r "%~dp0requirements.txt"
 if %errorlevel% neq 0 (
-    echo [ERROR] Failed to install packages.
+    echo [ERROR] Failed to install packages. See errors above.
     pause
     exit /b 1
 )
