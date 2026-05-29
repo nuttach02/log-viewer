@@ -1,0 +1,50 @@
+[
+  {
+    "name": "F7-3F-N17-log20",
+    "path": "\\\\10.94.94.20\\store",
+    "username": "test",
+    "password": "qcitest"
+  },
+  {
+    "name": "F7-2F-J27-log72",
+    "path": "\\\\10.94.165.72\\store",
+    "username": "test",
+    "password": "qcitest"
+  },
+  {
+    "name": "F7-2F-J27-log86",
+    "path": "\\\\10.94.165.86\\store",
+    "username": "test",
+    "password": "qcitest"
+  },
+  {
+    "name": "F7-3F-N17-log14",
+    "path": "\\\\10.94.95.14\\store",
+    "username": "test",
+    "password": "qcitest"
+  },
+  {
+    "name": "F7-4F-T17-log82",
+    "path": "\\\\10.94.107.82\\store",
+    "username": "test",
+    "password": "qcitest"
+  },
+  {
+    "name": "F10-3F-O10-log14",
+    "path": "\\\\10.93.40.14\\store",
+    "username": "test",
+    "password": "qcitest"
+  },
+  {
+    "name": "F10-3F-O10-log34",
+    "path": "\\\\10.93.40.34\\store",
+    "username": "test",
+    "password": "qcitest"
+  },
+  {
+    "name": "F10-3F-O10-log30",
+    "path": "\\\\10.94.94.30\\store",
+    "username": "test",
+    "password": "qcitest"
+  }
+]

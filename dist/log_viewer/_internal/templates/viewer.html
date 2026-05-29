@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}{{ file.name }} — Log Viewer{% endblock %}
+
+{% block content %}
+<div class="viewer-header">
+  <div class="viewer-meta">
+    <h1 class="file-title">{{ file.name }}</h1>
+    <div class="meta-chips">
+      <span class="chip chip-{{ file.status|lower }}">
+        {% if file.status == "PASS" %}✅ PASS{% elif file.status == "FAIL" %}❌ FAIL{% else %}➖ UNKNOWN{% endif %}
+      </span>
+      <span class="chip">{{ file.station }}</span>
+      <span class="chip">SN: {{ file.sn }}</span>
+      <span class="chip">{{ file.modified_fmt }}</span>
+      <span class="chip">{{ file.size_fmt }}</span>
+    </div>
+  </div>
+  <div class="viewer-actions">
+    <a href="{{ back_url }}" class="btn btn-ghost">← Back</a>
+    <button class="btn btn-ghost" onclick="openFindBar()" title="Find in file (Ctrl+F)">Find</button>
+    <a href="/search?q={{ file.sn|urlencode }}&server={{ file.server|urlencode }}&group=1" class="btn btn-ghost" title="Find all logs with this SN">All logs for SN</a>
+    <a href="/download?path={{ file.path|urlencode }}" class="btn btn-secondary">⬇ Download</a>
+    <button id="tailBtn" class="btn btn-tail" onclick="toggleTail('{{ file.path|urlencode }}')">🔴 Live Tail</button>
+  </div>
+</div>
+
+<!-- Find-in-file bar -->
+<div class="find-bar" id="findBar" style="display:none">
+  <input type="text" id="findInput" class="filter-input" placeholder="Find in this page…"
+         oninput="findInFile()" onkeydown="findBarKey(event)" autocomplete="off">
+  <span id="findCount" class="find-count"></span>
+  <button class="btn btn-xs" onclick="findNav(-1)" title="Previous (Shift+Enter)">▲</button>
+  <button class="btn btn-xs" onclick="findNav(1)"  title="Next (Enter)">▼</button>
+  <a id="findSearchAll" href="#" class="btn btn-ghost btn-xs" title="Search this term across all indexed logs">Search all logs</a>
+  <button class="btn btn-ghost btn-xs" onclick="closeFindBar()">✕</button>
+</div>
+
+<!-- Static paginated view -->
+<div id="staticView">
+  <div class="log-wrap">
+    <pre class="log-pre" id="logPre" data-hl="{{ hl }}">{{ content }}</pre>
+  </div>
+  {% if total_pages > 1 %}
+  <div class="pagination">
+    {% if page > 1 %}
+      <a href="/view?path={{ file.path|urlencode }}&page={{ page - 1 }}" class="btn btn-ghost">‹ Prev</a>
+    {% endif %}
+    <span class="page-info">Lines {{ line_start }}–{{ line_end }} / {{ total_lines }} (page {{ page }}/{{ total_pages }})</span>
+    {% if page < total_pages %}
+      <a href="/view?path={{ file.path|urlencode }}&page={{ page + 1 }}" class="btn btn-ghost">Next ›</a>
+    {% endif %}
+  </div>
+  {% else %}
+    <div class="pagination"><span class="page-info">{{ total_lines }} lines</span></div>
+  {% endif %}
+</div>
+
+<!-- Live tail view (hidden until activated) -->
+<div id="tailView" style="display:none">
+  <div class="tail-status-bar">
+    <span class="tail-indicator">🔴</span>
+    <span id="tailStatus">Connecting…</span>
+    <span id="tailLineCount" class="tail-count"></span>
+    <label class="tail-wrap-label">
+      <input type="checkbox" id="tailWrap" onchange="applyWrap()"> Wrap lines
+    </label>
+    <label class="tail-wrap-label">
+      <input type="checkbox" id="tailAutoScroll" checked> Auto-scroll
+    </label>
+  </div>
+  <div class="log-wrap tail-log-wrap">
+    <pre class="log-pre" id="tailPre"></pre>
+  </div>
+</div>
+{% endblock %}

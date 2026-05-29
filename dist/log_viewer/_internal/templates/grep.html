@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+{% block title %}Grep: {{ query }} — Log Viewer{% endblock %}
+
+{% block content %}
+<div class="browse-header">
+  <h1 class="page-title">Grep results</h1>
+  <div class="header-actions">
+    <a href="javascript:history.back()" class="btn btn-ghost">← Back</a>
+  </div>
+</div>
+
+<!-- Progress bar (hidden when done) -->
+<div id="grepProgress">
+  <p class="result-summary" id="grepStatusLine">
+    Searching <strong>{{ file_count }}</strong> file{% if file_count != 1 %}s{% endif %}
+    for <code class="grep-query">{{ query }}</code>…
+  </p>
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+    <div class="grep-prog-bar-wrap" style="flex:1;max-width:640px">
+      <div class="grep-prog-bar" id="gmBar"></div>
+    </div>
+    <span class="grep-prog-text" id="gmProgress">Starting…</span>
+    <button id="cancelBtn" class="btn btn-ghost btn-xs" onclick="cancelGrep()">✕ Cancel</button>
+  </div>
+</div>
+
+<!-- Summary + download (shown when done) -->
+<div id="grepDone" style="display:none" class="result-header">
+  <p class="result-summary" id="gmSummaryText"></p>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px">
+    <span id="gmDownload"></span>
+    <span id="gmSortBtns" style="display:none;gap:6px;display:none;align-items:center">
+      <span style="font-size:12px;color:var(--muted)">Sort:</span>
+      <button class="btn btn-xs btn-primary"  id="sortNewest"  onclick="sortResults('newest')">Newest first</button>
+      <button class="btn btn-xs btn-secondary" id="sortOldest"  onclick="sortResults('oldest')">Oldest first</button>
+      <button class="btn btn-xs btn-secondary" id="sortMatches" onclick="sortResults('matches')">Most matches</button>
+      <button class="btn btn-xs btn-secondary" id="sortGrouped" onclick="sortResults('grouped')">Group by SN</button>
+    </span>
+  </div>
+</div>
+
+<!-- Live results -->
+<div id="gmResults"></div>
+
+<script>
+const _Q             = {{ query | tojson }};
+const _PATHS         = {{ paths | tojson }};
+
+const _abortCtrl = new AbortController();
+function cancelGrep() { _abortCtrl.abort(); history.back(); }
+window.addEventListener('pagehide', () => _abortCtrl.abort());
+
+function _esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function _hl(s, q) {
+  const e = _esc(s);
+  if (!q) return e;
+  return e.replace(new RegExp('(' + q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + ')','gi'),'<mark>$1</mark>');
+}
+function _card(r) {
+  const sl = r.status==='PASS'?'✅ PASS':r.status==='FAIL'?'❌ FAIL':'➖ UNKNOWN';
+  const sc = (r.status||'unknown').toLowerCase();
+  const mc = (r.matching_lines||[]).length;
+  const lines = (r.matching_lines||[]).map(m=>
+    `<div class="grep-line"><span class="grep-lineno">${m.n}</span><code class="grep-text">${_hl(m.text,_Q)}</code></div>`
+  ).join('');
+  return `<div class="grep-file">
+    <div class="grep-file-header">
+      <span class="chip chip-${sc}">${sl}</span>
+      <a href="/view?path=${encodeURIComponent(r.path)}&hl=${encodeURIComponent(_Q)}" class="grep-filename">${_esc(r.name)}</a>
+      <span class="grep-meta">SN: ${_esc(r.sn||'')} · ${_esc(r.station||'')} · ${_esc(r.modified_fmt||'')}</span>
+      <span class="grep-match-count">${mc} match${mc!==1?'es':''}</span>
+      <button class="btn-term" onclick="toggleTerm(this,'${encodeURIComponent(r.path)}')">▶ Show log</button>
+      <a href="/download?path=${encodeURIComponent(r.path)}" class="btn btn-ghost btn-xs">⬇ Download</a>
+    </div>
+    <div class="grep-lines">${lines}</div>
+    <div class="term-panel">
+      <div class="term-toolbar">
+        <span class="term-dot term-dot-red"></span>
+        <span class="term-dot term-dot-yellow"></span>
+        <span class="term-dot term-dot-green"></span>
+        <span class="term-title">${_esc(r.path)}</span>
+        <button class="btn-term" onclick="toggleTerm(this,'')">✕ Close</button>
+      </div>
+      <div class="term-scroll"><div class="term-loading">Loading…</div></div>
+    </div>
+  </div>`;
+}
+
+const _loaded = new WeakMap();
+function toggleTerm(btn, encodedPath) {
+  const card  = btn.closest('.grep-file');
+  const panel = card.querySelector('.term-panel');
+  const open  = panel.classList.contains('open');
+  if (open) {
+    panel.classList.remove('open');
+    card.querySelector('.btn-term').textContent = '▶ Show log';
+    return;
+  }
+  panel.classList.add('open');
+  card.querySelector('.btn-term').textContent = '▼ Hide log';
+  if (_loaded.has(panel)) return;
+  _loaded.set(panel, true);
+  const scroll = panel.querySelector('.term-scroll');
+  fetch('/api/file-content?path=' + encodedPath + '&hl=' + encodeURIComponent(_Q))
+    .then(r => r.text())
+    .then(h => { scroll.innerHTML = h; })
+    .catch(e => { scroll.innerHTML = `<div class="term-loading" style="color:#f87171">Failed: ${e}</div>`; });
+}
+
+const matchedPaths   = [];
+const matchedResults = [];
+
+function _sortKey(r, mode) {
+  if (mode === 'oldest')  return  (r.modified || 0);
+  if (mode === 'matches') return -(r.matching_lines||[]).length;
+  return -(r.modified || 0);
+}
+
+function _groupCard(sn, results) {
+  const total = results.reduce((s, r) => s + (r.matching_lines||[]).length, 0);
+  let gs = 'UNKNOWN';
+  if (results.some(r => r.status === 'FAIL')) gs = 'FAIL';
+  else if (results.some(r => r.status === 'PASS')) gs = 'PASS';
+  const sc = gs.toLowerCase();
+  const sl = gs==='PASS'?'✅ PASS':gs==='FAIL'?'❌ FAIL':'➖ UNKNOWN';
+  const pathInputs = results.map(r => `<input type="hidden" name="path" value="${_esc(r.path)}">`).join('');
+  const qInput = _Q ? `<input type="hidden" name="q" value="${_esc(_Q)}">` : '';
+  return `<div class="grep-group">
+    <div class="grep-group-header">
+      <span class="chip chip-${sc}">${sl}</span>
+      <strong class="grep-group-sn">${_esc(sn)}</strong>
+      <span class="grep-meta">${results.length} file${results.length!==1?'s':''} · ${total} match${total!==1?'es':''}</span>
+      <form method="post" action="/download-zip" style="margin-left:auto">${qInput}${pathInputs}<button class="btn btn-ghost btn-xs">⬇ Download ${results.length} file${results.length!==1?'s':''}</button></form>
+    </div>
+    ${results.map(_card).join('')}
+  </div>`;
+}
+
+function sortResults(mode) {
+  if (mode === 'grouped') {
+    const groups = {};
+    for (const r of matchedResults) {
+      const sn = r.sn || '(no SN)';
+      if (!groups[sn]) groups[sn] = [];
+      groups[sn].push(r);
+    }
+    for (const sn in groups) groups[sn].sort((a, b) => (b.modified||0) - (a.modified||0));
+    document.getElementById('gmResults').innerHTML = Object.keys(groups).sort().map(sn => _groupCard(sn, groups[sn])).join('');
+  } else {
+    matchedResults.sort((a, b) => _sortKey(a, mode) - _sortKey(b, mode));
+    document.getElementById('gmResults').innerHTML = matchedResults.map(_card).join('');
+  }
+  const modeMap = {sortNewest:'newest', sortOldest:'oldest', sortMatches:'matches', sortGrouped:'grouped'};
+  ['sortNewest','sortOldest','sortMatches','sortGrouped'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.className = 'btn btn-xs ' + (modeMap[id] === mode ? 'btn-primary' : 'btn-secondary');
+  });
+}
+
+(async function stream() {
+  if (!_Q || !_PATHS.length) return;
+  const fd = new FormData();
+  fd.append('q', _Q);
+  fd.append('paths_json', JSON.stringify(_PATHS));
+  const streamUrl = '/grep-stream';
+
+  try {
+    const resp = await fetch(streamUrl, { method: 'POST', body: fd, signal: _abortCtrl.signal });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const reader = resp.body.getReader();
+    const dec    = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const blocks = buf.split('\n\n');
+      buf = blocks.pop();
+
+      for (const block of blocks) {
+        let eName = '', eData = '';
+        for (const line of block.split('\n')) {
+          if (line.startsWith('event: ')) eName = line.slice(7).trim();
+          else if (line.startsWith('data: '))  eData = line.slice(6).trim();
+        }
+        if (!eData) continue;
+        const data = JSON.parse(eData);
+
+        if (eName === 'progress') {
+          const pct = Math.round(data.current / data.total * 100);
+          document.getElementById('gmBar').style.width      = pct + '%';
+          document.getElementById('gmProgress').textContent = `${data.current} / ${data.total} — ${data.filename}`;
+          if (data.current === 1) {
+            document.getElementById('grepStatusLine').innerHTML =
+              `Searching <strong>${data.total}</strong> file${data.total !== 1 ? 's' : ''} for <code class="grep-query">${_esc(_Q)}</code>…`;
+          }
+
+        } else if (eName === 'match') {
+          matchedPaths.push(data.path);
+          matchedResults.push(data);
+          document.getElementById('gmResults').insertAdjacentHTML('beforeend', _card(data));
+
+        } else if (eName === 'done') {
+          document.getElementById('gmBar').style.width = '100%';
+          document.getElementById('grepProgress').style.display = 'none';
+
+          const done    = document.getElementById('grepDone');
+          const summary = document.getElementById('gmSummaryText');
+          const dl      = document.getElementById('gmDownload');
+          summary.innerHTML = `<strong>${data.matched}</strong> of <strong>${data.searched}</strong> file${data.searched!==1?'s':''} matched <code class="grep-query">${_esc(_Q)}</code>`;
+          if (matchedPaths.length > 0) {
+            const inputs = matchedPaths.map(p=>`<input type="hidden" name="path" value="${_esc(p)}">`).join('');
+            dl.innerHTML = `<form method="post" action="/download-zip" style="display:inline"><input type="hidden" name="q" value="${_esc(_Q)}">${inputs}<button class="btn btn-primary btn-xs">⬇ Download ${matchedPaths.length} file${matchedPaths.length!==1?'s':''} as ZIP</button></form>`;
+            // Auto-sort newest first, then show sort buttons
+            sortResults('newest');
+            const sb = document.getElementById('gmSortBtns');
+            if (sb) sb.style.display = 'flex';
+          }
+          done.style.display = '';
+        }
+      }
+    }
+  } catch(e) {
+    if (e.name === 'AbortError') return;
+    document.getElementById('gmProgress').textContent = '⚠ Error: ' + e;
+  }
+})();
+</script>
+{% endblock %}

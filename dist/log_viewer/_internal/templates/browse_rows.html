@@ -1,0 +1,17 @@
+{% for f in files %}
+<tr class="row-{{ f.status|lower }}">
+  <td><input type="checkbox" class="row-check" name="sel" value="{{ f.path }}"></td>
+  <td class="col-time">{{ f.modified_fmt }}</td>
+  <td class="col-sn">{{ f.sn }}</td>
+  <td class="col-station">{{ f.station }}</td>
+  <td class="col-result">
+    {% if f.status == "PASS" %}✅ PASS
+    {% elif f.status == "FAIL" %}❌ FAIL
+    {% else %}➖ UNKNOWN{% endif %}
+  </td>
+  <td class="col-name"><span title="{{ f.folder }}">{{ f.name }}</span></td>
+  <td><a href="/view?path={{ f.path|urlencode }}" class="btn btn-xs">👁</a></td>
+</tr>
+{% else %}
+<tr><td colspan="7" class="empty">No files found.</td></tr>
+{% endfor %}
