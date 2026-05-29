@@ -53,12 +53,18 @@ if %errorlevel% neq 0 (
 )
 
 :install_packages
-:: Install requirements
-echo [INFO] Installing packages (this may take a few minutes)...
+:: Install requirements — use local packages\ folder if present (offline mode)
 "%~dp0.venv\Scripts\python.exe" -m pip install --upgrade pip --quiet
-"%~dp0.venv\Scripts\python.exe" -m pip install -r "%~dp0requirements.txt"
+if exist "%~dp0packages\" (
+    echo [INFO] Installing packages from local packages\ folder (offline mode)...
+    "%~dp0.venv\Scripts\python.exe" -m pip install -r "%~dp0requirements.txt" --no-index --find-links "%~dp0packages"
+) else (
+    echo [INFO] Installing packages from internet (this may take a few minutes)...
+    "%~dp0.venv\Scripts\python.exe" -m pip install -r "%~dp0requirements.txt"
+)
 if %errorlevel% neq 0 (
     echo [ERROR] Failed to install packages. See errors above.
+    echo         If no internet: run download_packages.bat on a PC with internet first.
     pause
     exit /b 1
 )
