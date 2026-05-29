@@ -1,0 +1,288 @@
+{% extends "base.html" %}
+{% block title %}{{ current_top or "Browse" }} — Log Viewer{% endblock %}
+
+{% block content %}
+<div class="browse-header">
+  <h1 class="page-title">
+    {% if current_top %}
+      <a href="/browse?server={{ current_server|urlencode }}">{{ current_server }}</a>
+      / {{ current_top }}
+      {% if current_folder and current_folder != "." %}
+        {% for part in breadcrumbs %}
+          / <a href="{{ part.url }}">{{ part.name }}</a>
+        {% endfor %}
+      {% endif %}
+    {% else %}
+      {{ current_server }}
+    {% endif %}
+  </h1>
+
+  <div class="header-actions">
+    {% if current_top %}
+    <form method="get" action="/browse" class="inline-form">
+      <input type="hidden" name="server" value="{{ current_server }}">
+      <input type="hidden" name="top" value="{{ current_top }}">
+      {% if current_folder and current_folder != "." %}
+      <input type="hidden" name="folder" value="{{ current_folder }}">
+      {% endif %}
+      <input type="hidden" name="recursive" value="1">
+      <input type="hidden" name="force_scan" value="1">
+      <button type="submit" class="btn {% if recursive %}btn-primary{% else %}btn-secondary{% endif %}">
+        ↻ {{ "Re-scan folder" if recursive else "Scan folder" }}
+      </button>
+    </form>
+    <form method="get" action="/browse" class="inline-form">
+      <input type="hidden" name="server" value="{{ current_server }}">
+      <input type="hidden" name="top" value="{{ current_top }}">
+      <input type="hidden" name="recursive" value="0">
+      <button type="submit" class="btn btn-secondary">☰ This level only</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+{% if mount_error %}
+<div style="margin:12px 0;padding:12px 16px;background:#2d1a1a;border:1px solid #7f1d1d;border-radius:8px;font-size:0.875rem">
+  <strong style="color:#f87171">⚠ Cannot connect to server</strong>
+  <pre style="margin:6px 0 0;color:#fca5a5;font-size:0.8rem;white-space:pre-wrap;word-break:break-all">{{ mount_error }}</pre>
+  <div style="margin-top:8px;color:#fca5a5;font-size:0.8rem">
+    ตรวจสอบ credentials ใน <code>servers.json</code> หรือดูรายละเอียดได้ที่ <a href="/status" style="color:#f87171">Server Status</a>
+  </div>
+</div>
+{% endif %}
+
+{% if scanning %}
+<style>
+  .subfolders, .folder-search-bar, .filter-bar, .table-wrap,
+  .bulk-bar, #scrollSentinel, #loadingMore, .pagination { display: none !important; }
+</style>
+
+<div class="scan-screen">
+  <div class="scan-card">
+    <div class="scan-spinner"></div>
+    <div class="scan-card-title">Scanning</div>
+    <div class="scan-folder-name">{{ current_top }}{% if current_folder and current_folder != "." %} / {{ current_folder }}{% endif %}</div>
+    <div class="scan-bar-track">
+      <div class="scan-bar-fill"></div>
+      <div class="scan-bar-fill2"></div>
+    </div>
+    <div class="scan-card-count">
+      <span id="scanCount">0</span>
+      <div class="scan-card-count-label">files found</div>
+    </div>
+    <div class="scan-card-footer">
+      <a href="/browse?server={{ current_server|urlencode }}&top={{ current_top|urlencode }}{% if current_folder and current_folder != '.' %}&folder={{ current_folder|urlencode }}{% endif %}"
+         class="btn btn-ghost">✕ Cancel</a>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  // Remove force_scan from URL so location.reload() doesn't re-trigger a new scan
+  (function(){
+    var u = new URL(window.location.href);
+    if (u.searchParams.has('force_scan')) {
+      u.searchParams.delete('force_scan');
+      window.history.replaceState({}, '', u.toString());
+    }
+  })();
+
+  var server = {{ current_server | tojson }};
+  var top    = {{ current_top    | tojson }};
+  var folder = {{ (current_folder or "") | tojson }};
+  function poll(){
+    fetch("/api/scan-status?server=" + encodeURIComponent(server) + "&top=" + encodeURIComponent(top) + "&folder=" + encodeURIComponent(folder))
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        var el = document.getElementById("scanCount");
+        if (el) el.textContent = d.files.toLocaleString();
+        if(d.state === "done" || d.state === "error"){ location.reload(); }
+        else { setTimeout(poll, 1500); }
+      })
+      .catch(function(){ setTimeout(poll, 3000); });
+  }
+  setTimeout(poll, 1500);
+})();
+</script>
+{% endif %}
+
+{% if not current_top %}
+  <p class="hint">Select a top folder from the sidebar, or scan to index files.</p>
+{% else %}
+
+<!-- Sub-folder chips + folder filter (grouped together) -->
+{% if subfolders %}
+<div class="subfolders">
+  {% if current_folder and current_folder != "." %}
+    <a href="{{ parent_url }}" class="folder-chip">⬆ ..</a>
+  {% endif %}
+  {% for sf in subfolders %}
+    <a href="/browse?server={{ current_server|urlencode }}&top={{ current_top|urlencode }}&folder={{ sf.path|urlencode }}" class="folder-chip">📁 {{ sf.name }}</a>
+  {% endfor %}
+</div>
+<div class="folder-search-bar">
+  <input type="text" id="folderFilter" placeholder="Filter folders…" class="filter-input" style="flex:1" autocomplete="off"
+         oninput="filterFolders(this.value)">
+  <button class="btn btn-ghost" onclick="document.getElementById('folderFilter').value='';filterFolders('')">✕</button>
+</div>
+<script>
+function filterFolders(q) {
+  var lower = q.toLowerCase();
+  document.querySelectorAll('.folder-chip').forEach(function(chip) {
+    if (chip.textContent.trim().startsWith('⬆')) return;
+    chip.style.display = (!lower || chip.textContent.toLowerCase().includes(lower)) ? '' : 'none';
+  });
+}
+</script>
+{% endif %}
+
+<!-- File filters -->
+<form id="fileFilterForm" method="get" action="/browse" class="filter-bar">
+  <input type="hidden" name="server" value="{{ current_server }}">
+  <input type="hidden" name="top" value="{{ current_top }}">
+  {% if current_folder %}<input type="hidden" name="folder" value="{{ current_folder }}">{% endif %}
+  {% if recursive %}<input type="hidden" name="recursive" value="1">{% endif %}
+
+  <select name="status" class="filter-select">
+    <option value="">All results</option>
+    <option value="PASS" {% if filters.status=="PASS" %}selected{% endif %}>✅ PASS</option>
+    <option value="FAIL" {% if filters.status=="FAIL" %}selected{% endif %}>❌ FAIL</option>
+    <option value="UNKNOWN" {% if filters.status=="UNKNOWN" %}selected{% endif %}>➖ UNKNOWN</option>
+  </select>
+
+  <select name="station" class="filter-select">
+    <option value="">All stations</option>
+    <option value="BFT"            {% if filters.station=="BFT"            %}selected{% endif %}>BFT</option>
+    <option value="FQA"            {% if filters.station=="FQA"            %}selected{% endif %}>FQA</option>
+    <option value="SIMPLE_FIXTURE" {% if filters.station=="SIMPLE_FIXTURE" %}selected{% endif %}>SIMPLE_FIXTURE</option>
+  </select>
+
+  <textarea name="sn" rows="1" placeholder="SN — one per line or comma-separated" class="filter-input filter-sn"
+            title="Paste one SN per line, or comma-separated. Matches any."
+            oninput="this.rows = Math.min(8, (this.value.match(/\n/g)||[]).length + 1) || 1">{{ filters.sn or '' }}</textarea>
+
+  <input type="date" name="date_from" value="{{ filters.date_from or '' }}" class="filter-input" title="From date">
+  <input type="date" name="date_to"   value="{{ filters.date_to   or '' }}" class="filter-input" title="To date">
+
+  <input type="text" name="hide" value="{{ filters.hide or '' }}" placeholder="Hide patterns (e.g. *_sfc.log)" class="filter-input" title="Comma-separated glob patterns to hide">
+
+  <input type="hidden" name="page_size" value="{{ page_size }}">
+
+  <button type="submit" class="btn btn-primary">Filter</button>
+  <a href="/browse?server={{ current_server|urlencode }}&top={{ current_top|urlencode }}{% if current_folder and current_folder != '.' %}&folder={{ current_folder|urlencode }}{% endif %}{% if recursive %}&recursive=1{% endif %}" class="btn btn-ghost">Clear</a>
+</form>
+<script>
+(function () {
+  var form = document.getElementById('fileFilterForm');
+  if (!form) return;
+  var t = null;
+  function go() {
+    var liveQ = document.querySelector('input[name="content_q"]');
+    if (liveQ) sessionStorage.setItem('browse_content_q', liveQ.value);
+    form.submit();
+  }
+  function debounce() { clearTimeout(t); t = setTimeout(go, 600); }
+
+  form.querySelector('select[name="status"]').addEventListener('change', go);
+  form.querySelector('select[name="station"]').addEventListener('change', go);
+  form.querySelector('textarea[name="sn"]').addEventListener('blur', go);
+  form.querySelector('input[name="hide"]').addEventListener('input', debounce);
+  form.querySelector('input[name="date_from"]').addEventListener('change', go);
+  form.querySelector('input[name="date_to"]').addEventListener('change', go);
+  form.querySelector('input[name="date_from"]').addEventListener('input', debounce);
+  form.querySelector('input[name="date_to"]').addEventListener('input', debounce);
+})();
+</script>
+
+<!-- Content search (searches inside files, respects current filters) -->
+<form method="get" action="/browse" class="filter-bar" style="margin-top:6px;background:var(--bg-alt,#161820);border:1px solid var(--border,#2a2d3a);border-radius:8px;padding:8px 12px;">
+  <input type="hidden" name="server" value="{{ current_server }}">
+  <input type="hidden" name="top" value="{{ current_top }}">
+  {% if current_folder %}<input type="hidden" name="folder" value="{{ current_folder }}">{% endif %}
+  {% if recursive %}<input type="hidden" name="recursive" value="1">{% endif %}
+  {% if filters.status %}<input type="hidden" name="status" value="{{ filters.status }}">{% endif %}
+  {% if filters.station %}<input type="hidden" name="station" value="{{ filters.station }}">{% endif %}
+  {% if filters.sn %}<input type="hidden" name="sn" value="{{ filters.sn }}">{% endif %}
+  {% if filters.date_from %}<input type="hidden" name="date_from" value="{{ filters.date_from }}">{% endif %}
+  {% if filters.date_to %}<input type="hidden" name="date_to" value="{{ filters.date_to }}">{% endif %}
+  {% if filters.hide %}<input type="hidden" name="hide" value="{{ filters.hide }}">{% endif %}
+
+  <span style="font-size:0.75rem;color:var(--text-muted,#6b7280);white-space:nowrap;font-weight:600;letter-spacing:.05em;">🔍 SEARCH IN FILES</span>
+  <input type="text" name="content_q" value="{{ filters.content_q or '' }}"
+         placeholder="Search text inside log files… (uses current SN / status / date filters)"
+         class="filter-input" style="flex:1" autocomplete="off">
+  <button type="submit" class="btn btn-primary" onclick="sessionStorage.removeItem('browse_content_q')">Search in files</button>
+  <select name="page_size" class="filter-select" title="Rows per page" onchange="this.form.submit()">
+    {% for n in [100, 200, 300, 500, 1000] %}
+    <option value="{{ n }}" {% if page_size == n %}selected{% endif %}>{{ n }} / page</option>
+    {% endfor %}
+  </select>
+</form>
+<script>
+(function () {
+  {% if not filters.content_q %}
+  var saved = sessionStorage.getItem('browse_content_q');
+  if (saved) {
+    var inp = document.querySelector('input[name="content_q"]');
+    if (inp) inp.value = saved;
+  }
+  {% endif %}
+})();
+</script>
+
+<!-- File table -->
+<div class="table-wrap">
+  <table class="file-table" id="fileTable">
+    <thead>
+      <tr>
+        <th><input type="checkbox" id="selectAll" title="Select all"></th>
+        <th><a href="{{ sort_url('modified') }}">Time {{ sort_icon('modified') }}</a></th>
+        <th><a href="{{ sort_url('sn') }}">SN {{ sort_icon('sn') }}</a></th>
+        <th><a href="{{ sort_url('station') }}">Station {{ sort_icon('station') }}</a></th>
+        <th><a href="{{ sort_url('status') }}">Result {{ sort_icon('status') }}</a></th>
+        <th><a href="{{ sort_url('name') }}">File {{ sort_icon('name') }}</a></th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="fileTableBody">
+      {% for f in files %}
+      <tr class="row-{{ f.status|lower }}">
+        <td><input type="checkbox" class="row-check" name="sel" value="{{ f.path }}"></td>
+        <td class="col-time">{{ f.modified_fmt }}</td>
+        <td class="col-sn">{{ f.sn }}</td>
+        <td class="col-station">{{ f.station }}</td>
+        <td class="col-result">
+          {% if f.status == "PASS" %}✅ PASS
+          {% elif f.status == "FAIL" %}❌ FAIL
+          {% else %}➖ UNKNOWN{% endif %}
+        </td>
+        <td class="col-name"><span title="{{ f.folder }}">{{ f.name }}</span></td>
+        <td>
+          <a href="/view?path={{ f.path|urlencode }}" class="btn btn-xs">👁</a>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="empty">No files found.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Bulk actions -->
+<div class="bulk-bar" id="bulkBar" style="display:none">
+  <span id="selCount">0</span> selected
+  <a href="#" id="dlSingle" class="btn btn-secondary">⬇ Download</a>
+  <a href="#" id="dlZip"    class="btn btn-secondary">⬇ ZIP</a>
+  <div class="bulk-sep"></div>
+  <input type="text" id="grepQ" class="filter-input filter-input-sm" placeholder="Search in selected…"
+         onkeydown="if(event.key==='Enter') submitGrep()">
+  <button class="btn btn-primary" onclick="submitGrep()">Search</button>
+</div>
+
+<div id="scrollSentinel" data-total="{{ total_pages }}" style="height:1px;margin-top:8px;"></div>
+<div id="loadingMore" style="display:none;text-align:center;padding:8px;color:var(--text-muted);">Loading…</div>
+<div class="pagination"><span class="page-info">{{ total_count }} files</span></div>
+
+{% endif %}{# current_top #}
+{% endblock %}

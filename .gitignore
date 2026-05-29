@@ -1,0 +1,23 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# PyInstaller build output
+build/
+dist/
+
+# Runtime data (regenerated automatically)
+file_cache/
+log_index.db
+
+# Credentials — copy servers.json manually to each machine; use servers.json.example as template
+servers.json
+
+# Uvicorn log files (runtime output, not source)
+uvicorn_out.txt
+uvicorn_err.txt
+
+# Claude Code project-local settings
+.claude/

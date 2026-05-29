@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Server Status — Log Viewer{% endblock %}
+
+{% block content %}
+<div class="browse-header">
+  <h1 class="page-title">Server Status</h1>
+  <a href="/status" class="btn btn-ghost btn-xs" style="margin-left:8px">↻ Re-test</a>
+</div>
+
+<!-- Connection test results -->
+{% if conn_results %}
+<h2 style="font-size:1rem;font-weight:600;margin:16px 0 8px">SMB Connection Test</h2>
+<div class="table-wrap">
+  <table class="file-table">
+    <thead>
+      <tr>
+        <th>Status</th>
+        <th>Server</th>
+        <th>UNC Path</th>
+        <th>Top Folders</th>
+        <th>Message</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in conn_results %}
+      <tr id="row-{{ loop.index }}">
+        <td>
+          {% if c.ok %}
+            <span class="chip chip-pass">✅ OK</span>
+          {% else %}
+            <span class="chip chip-fail">❌ Error</span>
+          {% endif %}
+        </td>
+        <td style="font-weight:500">{{ c.server }}</td>
+        <td style="font-family:var(--font-mono);font-size:0.8rem;color:var(--text-muted)">{{ c.path }}</td>
+        <td class="col-time">{{ c.folder_count if c.ok else '—' }}</td>
+        <td style="font-size:0.8rem;{% if not c.ok %}color:#f87171{% endif %}" id="msg-{{ loop.index }}">{{ c.message }}</td>
+        <td style="display:flex;gap:4px">
+          {% if c.ok %}
+          <a href="/browse?server={{ c.server|urlencode }}" class="btn btn-xs btn-ghost">Browse</a>
+          {% endif %}
+          <button class="btn btn-xs btn-secondary" onclick="fixConn({{ loop.index }}, {{ c.server|tojson }})">⚙ Fix</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% set failed = conn_results | selectattr('ok', 'equalto', false) | list %}
+{% if failed %}
+<div style="margin-top:12px;padding:12px 16px;background:#2d1a1a;border:1px solid #7f1d1d;border-radius:8px;font-size:0.85rem">
+  <strong style="color:#f87171">Troubleshooting tips:</strong>
+  <ul style="margin:6px 0 0 16px;color:#fca5a5;line-height:1.8">
+    <li>ตรวจสอบว่า UNC path และ credentials ใน <code>servers.json</code> ถูกต้อง</li>
+    <li>ลอง ping หรือ <code>net use \\server\share /user:username password</code> ใน Command Prompt</li>
+    <li>ถ้า error 1219 — เปิด Command Prompt แล้วรัน <code>net use * /delete</code> ก่อน</li>
+    <li>ถ้า error 53 (network path not found) — เครื่องนี้ไม่สามารถเข้าถึง server ได้ ตรวจสอบ network/firewall</li>
+    <li>ถ้า error 5 (access denied) — credentials ผิด หรือ account ไม่มีสิทธิ์เข้า share</li>
+  </ul>
+</div>
+{% endif %}
+
+{% else %}
+  <p class="hint">No servers configured.</p>
+{% endif %}
+
+<script>
+async function fixConn(idx, serverName) {
+  const btn  = event.target;
+  const msgEl = document.getElementById('msg-' + idx);
+  btn.disabled  = true;
+  btn.textContent = '⏳…';
+  msgEl.style.color = '';
+  msgEl.textContent = 'Clearing sessions and remounting…';
+  try {
+    const fd = new FormData();
+    fd.append('server', serverName);
+    const r    = await fetch('/api/fix-connection', { method: 'POST', body: fd });
+    const data = await r.json();
+    if (data.ok) {
+      msgEl.style.color   = '#4ade80';
+      msgEl.textContent   = data.message + (data.folder_count ? ` (${data.folder_count} folders)` : '');
+      btn.closest('tr').querySelector('.chip').outerHTML = '<span class="chip chip-pass">✅ OK</span>';
+    } else {
+      msgEl.style.color = '#f87171';
+      msgEl.textContent = data.message;
+    }
+  } catch(e) {
+    msgEl.style.color = '#f87171';
+    msgEl.textContent = 'Request failed: ' + e;
+  }
+  btn.disabled    = false;
+  btn.textContent = '⚙ Fix';
+}
+</script>
+
+{% endblock %}

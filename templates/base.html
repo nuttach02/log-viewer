@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Log Viewer{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📂</text></svg>">
+</head>
+<body>
+<nav class="sidebar">
+  <div class="sidebar-header">
+    <span class="logo">📂 Log Viewer</span>
+  </div>
+
+  <div class="sidebar-section">
+    <label class="sidebar-label">Server</label>
+    <form method="get" action="/browse">
+      <select name="server" onchange="this.form.submit()" class="select-full">
+        {% for s in servers %}
+          <option value="{{ s.name }}" {% if s.name == current_server %}selected{% endif %}>{{ s.name }}</option>
+        {% endfor %}
+      </select>
+    </form>
+  </div>
+
+  {% if top_folders %}
+  <div class="sidebar-section">
+    <label class="sidebar-label">
+      Top Folder
+      {% if not folders_indexed %}<span class="sidebar-hint" title="Not yet scanned — click a folder then use Scan">live</span>{% endif %}
+    </label>
+    {% if top_folders|length > 5 %}
+    <input id="sidebarFolderSearch" type="text" placeholder="ค้นหาโฟลเดอร์…"
+           class="sidebar-folder-search" autocomplete="off"
+           oninput="filterSidebarFolders(this.value)">
+    {% endif %}
+    <ul class="folder-list" id="sidebarFolderList">
+      {% for tf in top_folders %}
+      <li>
+        <a href="/browse?server={{ current_server|urlencode }}&top={{ tf|urlencode }}"
+           class="folder-link {% if tf == current_top %}active{% endif %}">
+          {% if folders_indexed %}📁{% else %}🔍{% endif %} {{ tf }}
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  <script>
+  function filterSidebarFolders(q) {
+    var lower = q.toLowerCase();
+    document.querySelectorAll('#sidebarFolderList .folder-link').forEach(function(a) {
+      a.parentElement.style.display = (!lower || a.textContent.toLowerCase().includes(lower)) ? '' : 'none';
+    });
+  }
+  </script>
+  {% endif %}
+
+  <div style="margin-top:auto;padding:12px 16px;font-size:11px;color:var(--muted);border-top:1px solid var(--border);">
+    Built by <strong style="color:var(--text)">Ijedai</strong>
+  </div>
+</nav>
+
+<main class="content">
+  {% block content %}{% endblock %}
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

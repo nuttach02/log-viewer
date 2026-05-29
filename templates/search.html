@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Search — Log Viewer{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Search logs</h1>
+
+<form method="get" action="/search" class="search-form">
+  <input type="hidden" name="server" value="{{ current_server }}">
+  <div class="search-row">
+    <input type="text" name="q" value="{{ query or '' }}" placeholder="Keyword, MAC address, serial number…" class="search-input" autofocus>
+    <button type="submit" name="group" value="0" class="btn btn-primary">Search</button>
+    <button type="submit" name="group" value="1" class="btn btn-secondary" title="Group results by serial number">Group by SN</button>
+  </div>
+</form>
+
+{% if query %}
+  {% if group %}
+    {# ── Grouped by SN ──────────────────────────────────────────── #}
+    <div class="result-header">
+      <p class="result-summary">
+        {{ grouped|length }} serial number{% if grouped|length != 1 %}s{% endif %} matched
+        <strong>{{ query }}</strong>
+        ({{ grouped | sum(attribute='count') }} total files)
+      </p>
+      <a href="/search?q={{ query|urlencode }}&server={{ current_server|urlencode }}&group=0" class="btn btn-ghost btn-xs">Show flat list</a>
+      <form method="post" action="/download-zip" style="display:inline">
+        {% for g in grouped %}{% for f in g.files %}<input type="hidden" name="path" value="{{ f.path }}">{% endfor %}{% endfor %}
+        <button type="submit" class="btn btn-primary btn-xs">⬇ Download all as ZIP</button>
+      </form>
+    </div>
+
+    {% if grouped %}
+      {% for g in grouped %}
+      <details class="sn-group" {% if loop.index <= 3 %}open{% endif %}>
+        <summary>
+          <span class="sn-group-label">{{ g.sn }}</span>
+          <span class="sn-group-count">{{ g.count }} file{% if g.count != 1 %}s{% endif %}</span>
+          <span class="sn-group-status">
+            {% set pass_ct = g.files | selectattr('status','eq','PASS') | list | length %}
+            {% set fail_ct = g.files | selectattr('status','eq','FAIL') | list | length %}
+            {% if pass_ct %}<span class="chip chip-pass">{{ pass_ct }} PASS</span>{% endif %}
+            {% if fail_ct %}<span class="chip chip-fail">{{ fail_ct }} FAIL</span>{% endif %}
+          </span>
+        </summary>
+        <div class="sn-group-files">
+          <table class="file-table">
+            <tbody>
+              {% for f in g.files %}
+              <tr class="row-{{ f.status|lower }}">
+                <td class="col-time">{{ f.modified_fmt }}</td>
+                <td class="col-station">{{ f.station }}</td>
+                <td class="col-result">
+                  {% if f.status == "PASS" %}✅ PASS
+                  {% elif f.status == "FAIL" %}❌ FAIL
+                  {% else %}➖ UNKNOWN{% endif %}
+                </td>
+                <td class="col-name">
+                  <a href="/view?path={{ f.path|urlencode }}&hl={{ query|urlencode }}">{{ f.name }}</a>
+                </td>
+                <td class="col-snippet"><code>{{ f.snippet|safe }}</code></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+      {% endfor %}
+    {% else %}
+      <p class="hint">No results found. Make sure files are indexed (Admin → Backfill).</p>
+    {% endif %}
+
+  {% else %}
+    {# ── Flat list ──────────────────────────────────────────────── #}
+    <div class="result-header">
+      <p class="result-summary">{{ results|length }} files matched <strong>{{ query }}</strong></p>
+      <a href="/search?q={{ query|urlencode }}&server={{ current_server|urlencode }}&group=1" class="btn btn-ghost btn-xs">Group by SN</a>
+      <form method="post" action="/download-zip" style="display:inline">
+        {% for r in results %}<input type="hidden" name="path" value="{{ r.path }}">{% endfor %}
+        <button type="submit" class="btn btn-primary btn-xs">⬇ Download all as ZIP</button>
+      </form>
+    </div>
+
+    {% if results %}
+    <div class="table-wrap">
+      <table class="file-table">
+        <thead>
+          <tr>
+            <th>Time</th><th>SN</th><th>Station</th><th>Result</th><th>File</th><th>Snippet</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in results %}
+          <tr class="row-{{ r.status|lower }}">
+            <td class="col-time">{{ r.modified_fmt }}</td>
+            <td class="col-sn">{{ r.sn }}</td>
+            <td class="col-station">{{ r.station }}</td>
+            <td class="col-result">
+              {% if r.status == "PASS" %}✅ PASS
+              {% elif r.status == "FAIL" %}❌ FAIL
+              {% else %}➖ UNKNOWN{% endif %}
+            </td>
+            <td class="col-name">
+              <a href="/view?path={{ r.path|urlencode }}&hl={{ query|urlencode }}">{{ r.name }}</a>
+            </td>
+            <td class="col-snippet"><code>{{ r.snippet|safe }}</code></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+      <p class="hint">No results found. Make sure files are indexed (Admin → Backfill).</p>
+    {% endif %}
+  {% endif %}
+{% endif %}
+{% endblock %}
