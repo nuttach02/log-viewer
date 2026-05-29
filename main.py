@@ -609,12 +609,27 @@ async def download_file(path: str):
 def _build_zip(paths: list[str]) -> io.BytesIO:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        seen: dict[str, int] = {}
         for p in paths:
+            pp = Path(p)
             try:
-                raw = Path(p).read_bytes()[:DOWNLOAD_BYTE_CAP]
-                zf.writestr(Path(p).name, raw)
+                raw = pp.read_bytes()[:DOWNLOAD_BYTE_CAP]
             except OSError:
                 continue
+            # Folder structure: top/STATUS/SN/filename
+            parts = pp.parts
+            top = parts[1] if len(parts) > 1 else "logs"
+            status = detect_status_from_path(pp)
+            stem = pp.stem
+            sn = stem[:stem.index("_")] if "_" in stem else stem
+            arcname = f"{top}/{status}/{sn}/{pp.name}"
+            # Deduplicate arcnames
+            if arcname in seen:
+                seen[arcname] += 1
+                arcname = f"{top}/{status}/{sn}/{pp.stem}_{seen[arcname]}{pp.suffix}"
+            else:
+                seen[arcname] = 0
+            zf.writestr(arcname, raw)
     buf.seek(0)
     return buf
 
