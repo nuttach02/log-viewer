@@ -198,6 +198,55 @@ if (logPre) {
   });
 }
 
+// ── FAIL line highlighting & summary (viewer page) ────────────────────────────
+(function () {
+  if (!logPre) return;
+
+  function escHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  const lines    = logPre.textContent.split('\n');
+  const failLines = [];
+  const html = lines.map((line, i) => {
+    const esc = escHtml(line);
+    if (/fail/i.test(line)) {
+      failLines.push({ num: i + 1, text: line.trim() });
+      return `<span class="line-fail">${esc}</span>`;
+    }
+    if (/pass/i.test(line)) {
+      return `<span class="line-pass">${esc}</span>`;
+    }
+    return esc;
+  }).join('\n');
+
+  logPre.innerHTML = html;
+  _origHTML = logPre.innerHTML; // seed so find-in-file restores to highlighted state
+
+  if (!failLines.length) return;
+
+  const MAX = 30;
+  const shown = failLines.slice(0, MAX);
+  const extra = failLines.length - shown.length;
+
+  const panel = document.createElement('div');
+  panel.className = 'fail-summary';
+  panel.innerHTML =
+    `<div class="fail-summary-hdr">` +
+    `❌ <strong>${failLines.length}</strong> FAIL line${failLines.length !== 1 ? 's' : ''} on this page` +
+    `<button class="fail-summary-toggle" onclick="this.closest('.fail-summary').classList.toggle('collapsed')">▲</button>` +
+    `</div>` +
+    `<ul class="fail-summary-list">` +
+    shown.map(f =>
+      `<li><span class="fail-linenum">L${f.num}</span><span class="fail-line-text">${escHtml(f.text)}</span></li>`
+    ).join('') +
+    (extra ? `<li class="fail-more">…and ${extra} more on this page</li>` : '') +
+    `</ul>`;
+
+  const logWrap = logPre.closest('.log-wrap');
+  if (logWrap) logWrap.before(panel);
+})();
+
 // Auto-open find bar if hl param set (from search/grep links)
 if (logPre) {
   const hlTerm = logPre.dataset.hl || '';

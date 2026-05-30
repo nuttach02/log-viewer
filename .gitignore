@@ -4,9 +4,8 @@ __pycache__/
 *.pyc
 *.pyo
 
-# PyInstaller build output
+# PyInstaller build working directory (not needed)
 build/
-dist/
 
 # Runtime data (regenerated automatically)
 file_cache/

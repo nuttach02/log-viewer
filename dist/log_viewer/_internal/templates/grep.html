@@ -31,10 +31,11 @@
     <span id="gmDownload"></span>
     <span id="gmSortBtns" style="display:none;gap:6px;display:none;align-items:center">
       <span style="font-size:12px;color:var(--muted)">Sort:</span>
-      <button class="btn btn-xs btn-primary"  id="sortNewest"  onclick="sortResults('newest')">Newest first</button>
-      <button class="btn btn-xs btn-secondary" id="sortOldest"  onclick="sortResults('oldest')">Oldest first</button>
-      <button class="btn btn-xs btn-secondary" id="sortMatches" onclick="sortResults('matches')">Most matches</button>
-      <button class="btn btn-xs btn-secondary" id="sortGrouped" onclick="sortResults('grouped')">Group by SN</button>
+      <button class="btn btn-xs btn-primary"  id="sortNewest"  onclick="setSortMode('newest')">Newest first</button>
+      <button class="btn btn-xs btn-secondary" id="sortOldest"  onclick="setSortMode('oldest')">Oldest first</button>
+      <button class="btn btn-xs btn-secondary" id="sortMatches" onclick="setSortMode('matches')">Most matches</button>
+      <button class="btn btn-xs btn-secondary" id="sortSize"    onclick="setSortMode('size')">Smallest first</button>
+      <button class="btn btn-xs btn-secondary" id="sortGrouped" onclick="toggleGrouped()">Group by SN</button>
     </span>
   </div>
 </div>
@@ -65,16 +66,24 @@ function _card(r) {
   const lines = (r.matching_lines||[]).map(m=>
     `<div class="grep-line"><span class="grep-lineno">${m.n}</span><code class="grep-text">${_hl(m.text,_Q)}</code></div>`
   ).join('');
+  const failLines = (r.last_fail_lines||[]);
+  const failSection = failLines.length && r.status !== 'PASS' ?
+    `<div class="grep-fail-summary">` +
+    `<span class="grep-fail-label">❌ Last ${failLines.length} FAIL line${failLines.length!==1?'s':''}:</span>` +
+    failLines.map(f=>`<div class="grep-fail-line"><span class="grep-lineno">${f.n}</span><code class="grep-fail-text">${_esc(f.text)}</code></div>`).join('') +
+    `</div>` : '';
   return `<div class="grep-file">
     <div class="grep-file-header">
       <span class="chip chip-${sc}">${sl}</span>
       <a href="/view?path=${encodeURIComponent(r.path)}&hl=${encodeURIComponent(_Q)}" class="grep-filename">${_esc(r.name)}</a>
       <span class="grep-meta">SN: ${_esc(r.sn||'')} · ${_esc(r.station||'')} · ${_esc(r.modified_fmt||'')}</span>
+      <span class="grep-size">${_esc(r.size_fmt||'')}</span>
       <span class="grep-match-count">${mc} match${mc!==1?'es':''}</span>
       <button class="btn-term" onclick="toggleTerm(this,'${encodeURIComponent(r.path)}')">▶ Show log</button>
       <a href="/download?path=${encodeURIComponent(r.path)}" class="btn btn-ghost btn-xs">⬇ Download</a>
     </div>
     <div class="grep-lines">${lines}</div>
+    ${failSection}
     <div class="term-panel">
       <div class="term-toolbar">
         <span class="term-dot term-dot-red"></span>
@@ -112,11 +121,45 @@ function toggleTerm(btn, encodedPath) {
 const matchedPaths   = [];
 const matchedResults = [];
 
+let _sortMode  = 'newest';
+let _grouped   = false;
+
 function _sortKey(r, mode) {
   if (mode === 'oldest')  return  (r.modified || 0);
   if (mode === 'matches') return -(r.matching_lines||[]).length;
+  if (mode === 'size')    return  (r.size || 0);
   return -(r.modified || 0);
 }
+
+function _updateBtns() {
+  const sortIds = ['sortNewest','sortOldest','sortMatches','sortSize'];
+  const modeMap = {sortNewest:'newest', sortOldest:'oldest', sortMatches:'matches', sortSize:'size'};
+  sortIds.forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.className = 'btn btn-xs ' + (modeMap[id] === _sortMode ? 'btn-primary' : 'btn-secondary');
+  });
+  const gb = document.getElementById('sortGrouped');
+  if (gb) gb.className = 'btn btn-xs ' + (_grouped ? 'btn-primary' : 'btn-secondary');
+}
+
+function _render() {
+  const sorted = [...matchedResults].sort((a, b) => _sortKey(a, _sortMode) - _sortKey(b, _sortMode));
+  if (_grouped) {
+    const groups = {};
+    for (const r of sorted) {
+      const sn = r.sn || '(no SN)';
+      if (!groups[sn]) groups[sn] = [];
+      groups[sn].push(r);
+    }
+    document.getElementById('gmResults').innerHTML = Object.keys(groups).sort().map(sn => _groupCard(sn, groups[sn])).join('');
+  } else {
+    document.getElementById('gmResults').innerHTML = sorted.map(_card).join('');
+  }
+  _updateBtns();
+}
+
+function setSortMode(mode) { _sortMode = mode; _render(); }
+function toggleGrouped()   { _grouped = !_grouped; _render(); }
 
 function _groupCard(sn, results) {
   const total = results.reduce((s, r) => s + (r.matching_lines||[]).length, 0);
@@ -138,26 +181,6 @@ function _groupCard(sn, results) {
   </div>`;
 }
 
-function sortResults(mode) {
-  if (mode === 'grouped') {
-    const groups = {};
-    for (const r of matchedResults) {
-      const sn = r.sn || '(no SN)';
-      if (!groups[sn]) groups[sn] = [];
-      groups[sn].push(r);
-    }
-    for (const sn in groups) groups[sn].sort((a, b) => (b.modified||0) - (a.modified||0));
-    document.getElementById('gmResults').innerHTML = Object.keys(groups).sort().map(sn => _groupCard(sn, groups[sn])).join('');
-  } else {
-    matchedResults.sort((a, b) => _sortKey(a, mode) - _sortKey(b, mode));
-    document.getElementById('gmResults').innerHTML = matchedResults.map(_card).join('');
-  }
-  const modeMap = {sortNewest:'newest', sortOldest:'oldest', sortMatches:'matches', sortGrouped:'grouped'};
-  ['sortNewest','sortOldest','sortMatches','sortGrouped'].forEach(id => {
-    const btn = document.getElementById(id);
-    if (btn) btn.className = 'btn btn-xs ' + (modeMap[id] === mode ? 'btn-primary' : 'btn-secondary');
-  });
-}
 
 (async function stream() {
   if (!_Q || !_PATHS.length) return;
@@ -214,8 +237,7 @@ function sortResults(mode) {
           if (matchedPaths.length > 0) {
             const inputs = matchedPaths.map(p=>`<input type="hidden" name="path" value="${_esc(p)}">`).join('');
             dl.innerHTML = `<form method="post" action="/download-zip" style="display:inline"><input type="hidden" name="q" value="${_esc(_Q)}">${inputs}<button class="btn btn-primary btn-xs">⬇ Download ${matchedPaths.length} file${matchedPaths.length!==1?'s':''} as ZIP</button></form>`;
-            // Auto-sort newest first, then show sort buttons
-            sortResults('newest');
+            _render();
             const sb = document.getElementById('gmSortBtns');
             if (sb) sb.style.display = 'flex';
           }

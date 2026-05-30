@@ -234,6 +234,20 @@ body {
 .log-wrap { background: #0a0c12; border: 1px solid var(--border); border-radius: var(--radius); overflow: auto; max-height: 72vh; margin-bottom: 12px; }
 .log-pre { font-family: var(--font-mono); font-size: 12.5px; line-height: 1.55; padding: 16px; white-space: pre-wrap; word-break: break-all; color: #cdd6f4; }
 
+.line-fail { display: block; background: #2d0f0f; color: #fca5a5; border-left: 3px solid #ef4444; padding-left: 6px; margin-left: -6px; }
+.line-pass { display: block; background: #0f2d16; color: #86efac; border-left: 3px solid #22c55e; padding-left: 6px; margin-left: -6px; }
+
+.fail-summary { background: #1a0a0a; border: 1px solid #7f1d1d; border-radius: var(--radius); margin-bottom: 10px; overflow: hidden; }
+.fail-summary-hdr { display: flex; align-items: center; gap: 8px; padding: 8px 12px; color: #fca5a5; font-size: 0.85rem; font-weight: 600; }
+.fail-summary-toggle { margin-left: auto; background: none; border: none; color: #fca5a5; cursor: pointer; font-size: 0.8rem; padding: 2px 6px; }
+.fail-summary.collapsed .fail-summary-toggle { transform: rotate(180deg); }
+.fail-summary-list { list-style: none; margin: 0; padding: 0 12px 10px; display: flex; flex-direction: column; gap: 4px; }
+.fail-summary.collapsed .fail-summary-list { display: none; }
+.fail-summary-list li { display: flex; gap: 8px; align-items: baseline; font-size: 12px; font-family: var(--font-mono); }
+.fail-linenum { color: #6b7280; min-width: 3.5rem; flex-shrink: 0; }
+.fail-line-text { color: #fca5a5; white-space: pre-wrap; word-break: break-all; }
+.fail-more { color: #9ca3af; font-style: italic; font-family: inherit; }
+
 /* ── Live tail ───────────────────────────────────────────────────────────── */
 .btn-tail  { border-color: #7f1d1d; color: #fca5a5; }
 .btn-tail:hover { background: #7f1d1d22; }
@@ -313,11 +327,18 @@ mark.mark-current { background: #b45309; outline: 2px solid #fcd34d; }
 .grep-filename:hover { text-decoration: underline; }
 .grep-meta { color: var(--muted); font-size: 12px; }
 .grep-match-count { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.grep-size { color: #60a5fa; font-size: 12px; font-weight: 600; }
 .grep-lines { padding: 4px 0; }
 .grep-line { display: flex; font-family: var(--font-mono); font-size: 12px; line-height: 1.55; }
 .grep-line:hover { background: rgba(255,255,255,.03); }
 .grep-lineno { min-width: 52px; text-align: right; padding: 1px 10px; color: var(--muted); user-select: none; border-right: 1px solid var(--border); flex-shrink: 0; }
 .grep-text { padding: 1px 10px; white-space: pre-wrap; word-break: break-all; flex: 1; }
+
+.grep-fail-summary { padding: 6px 0 8px; border-top: 1px solid #2d1a1a; background: #120808; }
+.grep-fail-label { font-size: 11px; color: #ef4444; font-weight: 700; letter-spacing: .04em; display: block; padding: 0 12px 4px; }
+.grep-fail-line { display: flex; font-family: var(--font-mono); font-size: 12px; line-height: 1.55; background: #1a0808; }
+.grep-fail-line:hover { background: #2d0f0f; }
+.grep-fail-text { padding: 1px 10px; white-space: pre-wrap; word-break: break-all; flex: 1; color: #fca5a5; }
 .grep-group { margin-bottom: 20px; }
 .grep-group-header { display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 6px; }
 .grep-group-sn { font-size: 14px; letter-spacing: .03em; }
@@ -383,6 +404,10 @@ mark.mark-current { background: #b45309; outline: 2px solid #fcd34d; }
 }
 .term-pre .tl.tl-match { background: rgba(250,204,21,.06); }
 .term-pre .tl.tl-match::before { color: #4b5e70; }
+.term-pre .tl.tl-fail { background: #2d0f0f; color: #fca5a5; }
+.term-pre .tl.tl-fail::before { color: #7f1d1d; }
+.term-pre .tl.tl-pass { background: #0f2d16; color: #86efac; }
+.term-pre .tl.tl-pass::before { color: #14532d; }
 .term-pre mark { background: #78350f; color: #fde68a; border-radius: 2px; padding: 0 2px; }
 .term-more { margin: 0; padding: 8px 16px; font-size: 12px; color: #4a5568; background: #0d0f17; border-top: 1px solid #1e2030; }
 .term-more a { color: #68d391; }

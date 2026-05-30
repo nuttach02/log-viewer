@@ -10,8 +10,9 @@
     {% else %}➖ UNKNOWN{% endif %}
   </td>
   <td class="col-name"><span title="{{ f.folder }}">{{ f.name }}</span></td>
+  <td class="col-size">{{ f.size_fmt }}</td>
   <td><a href="/view?path={{ f.path|urlencode }}" class="btn btn-xs">👁</a></td>
 </tr>
 {% else %}
-<tr><td colspan="7" class="empty">No files found.</td></tr>
+<tr><td colspan="8" class="empty">No files found.</td></tr>
 {% endfor %}

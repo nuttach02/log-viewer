@@ -616,17 +616,15 @@ def _build_zip(paths: list[str]) -> io.BytesIO:
                 raw = pp.read_bytes()[:DOWNLOAD_BYTE_CAP]
             except OSError:
                 continue
-            # Folder structure: top/STATUS/SN/filename
-            parts = pp.parts
-            top = parts[1] if len(parts) > 1 else "logs"
+            # Folder structure: STATUS/SN/filename
             status = detect_status_from_path(pp)
             stem = pp.stem
             sn = stem[:stem.index("_")] if "_" in stem else stem
-            arcname = f"{top}/{status}/{sn}/{pp.name}"
+            arcname = f"{status}/{sn}/{pp.name}"
             # Deduplicate arcnames
             if arcname in seen:
                 seen[arcname] += 1
-                arcname = f"{top}/{status}/{sn}/{pp.stem}_{seen[arcname]}{pp.suffix}"
+                arcname = f"{status}/{sn}/{pp.stem}_{seen[arcname]}{pp.suffix}"
             else:
                 seen[arcname] = 0
             zf.writestr(arcname, raw)
@@ -806,8 +804,10 @@ async def search(request: Request, q: str = "", server: str = "", group: int = 0
 def _grep_one(path: str, q_lower: str) -> dict | None:
     """Search one file for q_lower. Streams line-by-line to avoid loading the
     full file into memory; stops collecting after 30 matches. Runs in thread pool."""
-    MAX_MATCHES = 30
-    matches: list[dict] = []
+    MAX_MATCHES  = 30
+    LAST_FAIL_N  = 3
+    matches: list[dict]    = []
+    fail_lines: list[dict] = []   # rolling last-N; kept small at all times
 
     cp = file_cache.get_cache_path(path)
     try:
@@ -815,10 +815,14 @@ def _grep_one(path: str, q_lower: str) -> dict | None:
             # Fast path: cached file — stream from local disk, no full load
             with open(cp, "r", encoding="utf-8", errors="replace") as fh:
                 for i, line in enumerate(fh):
-                    if q_lower in line.lower():
-                        matches.append({"n": i + 1, "text": line.rstrip("\n\r")})
-                        if len(matches) >= MAX_MATCHES:
-                            break
+                    stripped = line.rstrip("\n\r")
+                    ll = line.lower()
+                    if q_lower in ll and len(matches) < MAX_MATCHES:
+                        matches.append({"n": i + 1, "text": stripped})
+                    if "fail" in ll:
+                        fail_lines.append({"n": i + 1, "text": stripped})
+                        if len(fail_lines) > LAST_FAIL_N:
+                            fail_lines = fail_lines[-LAST_FAIL_N:]
         else:
             # Uncached: read raw bytes from SMB, decode once, search line-by-line
             raw = Path(path).read_bytes()
@@ -833,10 +837,13 @@ def _grep_one(path: str, q_lower: str) -> dict | None:
             else:
                 text = raw.decode("latin-1")
             for i, line in enumerate(text.splitlines()):
-                if q_lower in line.lower():
+                ll = line.lower()
+                if q_lower in ll and len(matches) < MAX_MATCHES:
                     matches.append({"n": i + 1, "text": line})
-                    if len(matches) >= MAX_MATCHES:
-                        break
+                if "fail" in ll:
+                    fail_lines.append({"n": i + 1, "text": line})
+                    if len(fail_lines) > LAST_FAIL_N:
+                        fail_lines = fail_lines[-LAST_FAIL_N:]
     except OSError:
         return None
 
@@ -855,9 +862,10 @@ def _grep_one(path: str, q_lower: str) -> dict | None:
         "size":     stat.st_size,
         **_parse_file_meta(p),
     }
-    d["matching_lines"] = matches
-    d["modified_fmt"]   = _fmt_modified(d.get("modified"))
-    d["size_fmt"]       = _fmt_size(d.get("size") or 0)
+    d["matching_lines"]  = matches
+    d["last_fail_lines"] = fail_lines
+    d["modified_fmt"]    = _fmt_modified(d.get("modified"))
+    d["size_fmt"]        = _fmt_size(d.get("size") or 0)
     return d
 
 
@@ -969,9 +977,14 @@ async def file_content_api(path: str, hl: str = ""):
     hl_lower = hl.lower()
 
     def _render_line(raw: str) -> str:
-        escaped  = _html.escape(raw)
-        is_match = hl_lower and hl_lower in raw.lower()
-        cls      = " tl-match" if is_match else ""
+        escaped   = _html.escape(raw)
+        raw_lower = raw.lower()
+        is_match  = hl_lower and hl_lower in raw_lower
+        cls       = " tl-match" if is_match else ""
+        if "fail" in raw_lower:
+            cls += " tl-fail"
+        elif "pass" in raw_lower:
+            cls += " tl-pass"
         if is_match:
             pattern = re.escape(_html.escape(hl))
             escaped = re.sub(f"({pattern})", r"<mark>\1</mark>", escaped, flags=re.IGNORECASE)

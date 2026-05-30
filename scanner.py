@@ -33,14 +33,26 @@ _mount_errors: dict[str, str] = {}   # unc_path → last error message
 
 def _clear_smb_sessions(server_host: str, unc_path: str) -> None:
     """Aggressively remove all SMB sessions to server_host."""
-    cmds = [
+    # Enumerate and delete every net use connection to this server
+    try:
+        r = subprocess.run(["net", "use"], capture_output=True, text=True, timeout=10)
+        for line in r.stdout.splitlines():
+            if server_host.lower() in line.lower():
+                parts = line.split()
+                for part in parts:
+                    if part.startswith("\\\\") and server_host.lower() in part.lower():
+                        subprocess.run(["net", "use", part, "/delete", "/yes"],
+                                       capture_output=True, timeout=10)
+                        break
+    except Exception:
+        pass
+    # Fallback: delete the specific share and IPC$
+    for cmd in [
         ["net", "use", unc_path, "/delete", "/yes"],
         ["net", "use", f"\\\\{server_host}\\IPC$", "/delete", "/yes"],
-        ["net", "use", f"\\\\{server_host}\\*", "/delete", "/yes"],
         ["cmdkey", f"/delete:{server_host}"],
         ["cmdkey", f"/delete:TERMSRV/{server_host}"],
-    ]
-    for cmd in cmds:
+    ]:
         try:
             subprocess.run(cmd, capture_output=True, timeout=10)
         except Exception:
@@ -51,6 +63,15 @@ def mount_share_verbose(unc_path: str, username: str, password: str) -> tuple[bo
     """Like mount_share() but always returns (success, message) — used for diagnostics."""
     system = platform.system()
     if system == "Windows":
+        # Pre-store credentials so Windows uses them instead of the logged-in user's session
+        server_host = unc_path.lstrip("\\").split("\\")[0]
+        try:
+            subprocess.run(
+                ["cmdkey", f"/add:{server_host}", f"/user:{username}", f"/pass:{password}"],
+                capture_output=True, timeout=10,
+            )
+        except Exception:
+            pass
         try:
             r = subprocess.run(
                 ["net", "use", unc_path, f"/user:{username}", password, "/persistent:no"],
@@ -70,9 +91,8 @@ def mount_share_verbose(unc_path: str, username: str, password: str) -> tuple[bo
             return True, "Connected"
         combined = (r.stderr + r.stdout).strip()
         if "1219" in combined:
-            server_host = unc_path.lstrip("\\").split("\\")[0]
             _clear_smb_sessions(server_host, unc_path)
-            time.sleep(0.5)  # give Windows time to release the session before remounting
+            time.sleep(2.0)
             subprocess.run(
                 ["cmdkey", f"/add:{server_host}", f"/user:{username}", f"/pass:{password}"],
                 capture_output=True, timeout=10,
@@ -133,7 +153,7 @@ def force_remount(unc_path: str, username: str, password: str) -> tuple[bool, st
     if platform.system() == "Windows":
         server_host = unc_path.lstrip("\\").split("\\")[0]
         _clear_smb_sessions(server_host, unc_path)
-        import time as _time; _time.sleep(0.5)
+        import time as _time; _time.sleep(2.0)
     return mount_share_verbose(unc_path, username, password)
 
 
